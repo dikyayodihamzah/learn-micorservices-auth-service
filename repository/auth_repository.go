@@ -18,6 +18,7 @@ type AuthRepository interface {
 	GetUsersByQuery(c context.Context, params, value string) (domain.User, error)
 	LoginByUsername(c context.Context, username string) (domain.User, error)
 	LoginByEmail(c context.Context, email string) (domain.User, error)
+	LoginByPhone(c context.Context, phone string) (domain.User, error)
 	UpdatePassword(c context.Context, user domain.User) error
 
 	CreateToken(c context.Context, tokens domain.ResetPasswordToken) error
@@ -129,6 +130,23 @@ func (repository *authRepository) LoginByEmail(c context.Context, email string) 
 	return *data, nil
 }
 
+func (repository *authRepository) LoginByPhone(c context.Context, phone string) (domain.User, error) {
+	ctx, cancel := context.WithTimeout(c, 10*time.Second)
+	defer cancel()
+
+	db := repository.Database(dbName)
+	defer db.Close(ctx)
+
+	query := `SELECT * FROM users WHERE phone = $1`
+
+	user := db.QueryRow(ctx, query, phone)
+
+	data := new(domain.User)
+	user.Scan(data.ID, data.Name, data.Username, data.Email, data.Password, data.Phone, data.Role, data.CreatedAt, data.UpdatedAt)
+
+	return *data, nil
+}
+
 func (repository *authRepository) UpdatePassword(c context.Context, user domain.User) error {
 	ctx, cancel := context.WithTimeout(c, 10*time.Second)
 	defer cancel()
@@ -162,7 +180,7 @@ func (repository *authRepository) CreateToken(c context.Context, tokens domain.R
 		return exception.ErrInternalServer(err.Error())
 	}
 
-	if _, err := db.Exec(ctx, "data", tokens.Tokens, tokens.Email, tokens.Phone, tokens.CreatedAt); err != nil {
+	if _, err := db.Exec(ctx, "data", tokens.Tokens, tokens.Email, tokens.CreatedAt); err != nil {
 		return exception.ErrInternalServer(err.Error())
 	}
 
@@ -181,7 +199,7 @@ func (repository *authRepository) CheckToken(c context.Context, token string) (d
 
 	data := new(domain.ResetPasswordToken)
 
-	if err := user.Scan(data.Tokens, data.Email, data.Phone, data.CreatedAt); err != nil {
+	if err := user.Scan(data.Tokens, data.Email, data.CreatedAt); err != nil {
 		return domain.ResetPasswordToken{}, err
 	}
 
@@ -200,7 +218,7 @@ func (repository *authRepository) CheckTokenWithQuery(c context.Context, params,
 
 	data := new(domain.ResetPasswordToken)
 
-	if err := user.Scan(data.Tokens, data.Email, data.Phone, data.CreatedAt); err != nil {
+	if err := user.Scan(data.Tokens, data.Email, data.CreatedAt); err != nil {
 		return domain.ResetPasswordToken{}, err
 	}
 

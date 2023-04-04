@@ -21,10 +21,10 @@ func controllers() {
 	db := config.NewDB
 	validate := validator.New()
 
-	profileRepository := repository.NewProfileRepository(db)
+	authRepository := repository.NewAuthRepository(db)
 	roleRepository := repository.NewRoleRepository(db)
-	profileService := service.NewProfileService(profileRepository, roleRepository, validate)
-	profileController := controller.NewProfileController(profileService)
+	authService := service.NewAuthService(authRepository, roleRepository, validate)
+	authController := controller.NewAuthController(authService)
 
 	app := fiber.New()
 	app.Use(recover.New())
@@ -35,7 +35,7 @@ func controllers() {
 		AllowCredentials: true,
 	}))
 
-	profileController.NewProfileRouter(app)
+	authController.NewAuthRouter(app)
 
 	err := app.Listen(serverConfig.URI)
 	log.Println(err)

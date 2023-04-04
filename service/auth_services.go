@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator"
+	"github.com/gofiber/fiber/v2"
+	"github.com/thanhpk/randstr"
 	"gitlab.com/learn-micorservices/auth-service/exception"
 	"gitlab.com/learn-micorservices/auth-service/helper"
 	"gitlab.com/learn-micorservices/auth-service/model/domain"
@@ -13,8 +17,12 @@ import (
 )
 
 type AuthService interface {
-	GetCurrentProfile(c context.Context, claims helper.JWTClaims) (web.ProfileResponse, error)
-	UpdateProfile(c context.Context, claims helper.JWTClaims, request web.UpdateProfileRequest) (web.ProfileResponse, error)
+	Register(c context.Context, request web.RegisterRequest) (web.RegisterResponse, error)
+	Login(c context.Context, request web.LoginRequest) (fiber.Cookie, web.LoginResponse, error)
+	Logout(c context.Context) fiber.Cookie
+	ForgetPassword(c context.Context, email string) error
+	ResetPassword(c context.Context, email, token string, request web.ResetPassword) error
+	CheckToken(c context.Context, token, email string) error
 }
 
 type authService struct {
@@ -77,12 +85,11 @@ func (service *authService) Register(c context.Context, request web.RegisterRequ
 	user.GenerateID()
 	user.SetPassword(request.Password)
 
-	err := service.AuthRepository.Register(c, user)
-	if err != nil {
+	if err := service.AuthRepository.Register(c, user); err != nil {
 		return web.RegisterResponse{}, err
 	}
 
-	user, err = service.AuthRepository.GetUsersByQuery(c, "id", user.ID)
+	user, err := service.AuthRepository.GetUsersByQuery(c, "id", user.ID)
 	if err != nil {
 		return web.RegisterResponse{}, err
 	}
@@ -92,62 +99,169 @@ func (service *authService) Register(c context.Context, request web.RegisterRequ
 	return helper.ToRegisterResponse(user), nil
 }
 
-func (service *profileService) GetCurrentProfile(c context.Context, claims helper.JWTClaims) (web.ProfileResponse, error) {
-	user, err := service.ProfileRepository.GetProfileByID(c, claims.Profile.ID)
-	if err != nil {
-		return web.ProfileResponse{}, err
+func (service *authService) Login(c context.Context, request web.LoginRequest) (fiber.Cookie, web.LoginResponse, error) {
+	err := service.Validate.Struct(request)
+	helper.PanicIfError(err)
+
+	if request.Username == "" && request.Email == "" && request.Phone == "" {
+		return fiber.Cookie{}, web.LoginResponse{}, exception.ErrBadRequest("username, email, or phone are missing")
 	}
 
-	if user.ID == "" {
-		return web.ProfileResponse{}, exception.ErrNotFound("user not found")
+	var user domain.User
+
+	// Login using username
+	if request.Username != "" {
+		user, err = service.AuthRepository.LoginByUsername(c, request.Username)
+		if err != nil || user.ID == "" {
+			return fiber.Cookie{}, web.LoginResponse{}, exception.ErrNotFound("user not found")
+		}
 	}
-	return helper.ToProfileResponse(user), nil
+
+	// Login using email
+	if request.Email != "" {
+		user, err = service.AuthRepository.LoginByEmail(c, request.Email)
+		if err != nil || user.ID == "" {
+			return fiber.Cookie{}, web.LoginResponse{}, exception.ErrNotFound("user not found")
+		}
+	}
+
+	// Login using phone
+	if request.Phone != "" {
+		user, err = service.AuthRepository.LoginByPhone(c, request.Phone)
+		if err != nil || user.ID == "" {
+			return fiber.Cookie{}, web.LoginResponse{}, exception.ErrNotFound("user not found")
+		}
+	}
+
+	if err := user.ComparePassword(user.Password, request.Password); err != nil {
+		return fiber.Cookie{}, web.LoginResponse{}, exception.ErrBadRequest("wrong password")
+	}
+
+	claims := helper.UserClaimsData{
+		ID:       user.ID,
+		Username: user.Username,
+		RoleID:   user.Role.ID,
+	}
+
+	token, err := helper.GenerateJWT(user.ID, claims)
+	helper.PanicIfError(err)
+
+	cookie := fiber.Cookie{
+		Name:     "token",
+		Value:    token,
+		Expires:  time.Now().Add(time.Hour * 24),
+		HTTPOnly: true,
+	}
+
+	response := web.LoginResponse{
+		Role: web.RoleResponse{
+			ID:   user.Role.ID,
+			Name: user.Role.Name,
+		},
+	}
+
+	return cookie, response, nil
 }
 
-func (service *profileService) UpdateProfile(c context.Context, claims helper.JWTClaims, request web.UpdateProfileRequest) (web.ProfileResponse, error) {
-	if err := service.Validate.Struct(request); err != nil {
-		return web.ProfileResponse{}, exception.ErrBadRequest(err.Error())
+func (service *authService) Logout(c context.Context) fiber.Cookie {
+	cookie := fiber.Cookie{
+		Name:     "token",
+		Value:    "",
+		Expires:  time.Now().Add(-time.Hour),
+		HTTPOnly: true,
 	}
 
-	user, err := service.ProfileRepository.GetProfileByID(c, claims.Profile.ID)
+	return cookie
+}
+
+func (service *authService) ForgetPassword(c context.Context, email string) error {
+	user, err := service.AuthRepository.GetUsersByQuery(c, "email", email)
+
+	if err != nil || user.Email == "" {
+		return exception.ErrBadRequest("email not match for the record")
+	}
+
+	tokens, err := service.AuthRepository.CheckTokenWithQuery(c, "email", email)
 	if err != nil {
-		return web.ProfileResponse{}, exception.ErrNotFound(err.Error())
+		return exception.ErrInternalServer(err.Error())
+	}
+	if tokens.Tokens != "" {
+		service.AuthRepository.DeleteToken(c, tokens.Tokens)
 	}
 
-	if request.Name != "" {
-		user.Name = request.Name
+	token := strings.ToLower(randstr.String(30))
+
+	data := domain.ResetPasswordToken{
+		Tokens:    token,
+		Email:     email,
+		CreatedAt: time.Now(),
 	}
 
-	if request.Email != "" {
-		if userByEmail, _ := service.ProfileRepository.GetProfilesByQuery(c, "email", request.Email); userByEmail.ID != "" && userByEmail.ID != claims.Profile.ID {
-			exception.ErrBadRequest("email already registered")
-		}
-		user.Email = request.Email
+	if err := service.AuthRepository.CreateToken(c, data); err != nil {
+		return err
 	}
 
-	if request.Phone != "" {
-		if !helper.IsNumeric(request.Phone) {
-			panic(exception.ErrBadRequest("Phone should numeric"))
-		}
+	if err := helper.EmailSender(email, token); err != nil {
+		return fiber.NewError(fiber.StatusBadGateway, "request error")
+	}
 
-		if len([]rune(request.Phone)) < 10 || len([]rune(request.Phone)) > 13 {
-			panic(exception.ErrBadRequest("Phone should 10-13 digit"))
-		}
+	return nil
+}
 
-		if userByPhone, _ := service.ProfileRepository.GetProfilesByQuery(c, "phone", request.Phone); userByPhone.ID != "" && userByPhone.ID != claims.Profile.ID {
-			exception.ErrBadRequest("phone already registered")
-		}
-		user.Phone = request.Phone
+func (service *authService) ResetPassword(c context.Context, email, token string, request web.ResetPassword) error {
+	err := service.Validate.Struct(request)
+	helper.PanicIfError(err)
+
+	var decodedByte, _ = base64.StdEncoding.DecodeString(token)
+	var resetToken = string(decodedByte)
+
+	if request.Password != request.PasswordConfirm {
+		panic(exception.ErrBadRequest("password didn't match"))
+	}
+
+	checkToken, err := service.AuthRepository.CheckToken(c, resetToken)
+
+	if err != nil {
+		return exception.ErrBadRequest("token invalid")
+	}
+
+	if checkToken.Tokens != resetToken || checkToken.Email != email {
+		return exception.ErrBadRequest("token invalid")
+	}
+
+	var user domain.User
+
+	if user, err = service.AuthRepository.GetUsersByQuery(c, "email", email); err != nil {
+		return exception.ErrNotFound(err.Error())
 	}
 
 	user.UpdatedAt = time.Now()
+	user.SetPassword(request.Password)
 
-	if err := service.ProfileRepository.UpdateProfile(c, user); err != nil {
-		return web.ProfileResponse{}, exception.ErrInternalServer(err.Error())
+	service.AuthRepository.UpdatePassword(c, user)
+
+	// helper.ProduceToKafka(user, "PUT.USER", helper.KafkaTopic)
+
+	err = service.AuthRepository.DeleteToken(c, resetToken)
+	if err != nil {
+		return exception.ErrInternalServer(err.Error())
+	}
+	return nil
+}
+
+func (service *authService) CheckToken(c context.Context, token, email string) error {
+
+	var decodedByte, _ = base64.StdEncoding.DecodeString(token)
+	var resetToken = string(decodedByte)
+
+	checkToken, err := service.AuthRepository.CheckToken(c, resetToken)
+
+	if err != nil {
+		return exception.ErrBadRequest("token invalid")
 	}
 
-	// KAFKA
-
-	user, _ = service.ProfileRepository.GetProfileByID(c, claims.Profile.ID)
-	return helper.ToProfileResponse(user), nil
+	if checkToken.Tokens != resetToken || checkToken.Email != email {
+		return exception.ErrBadRequest("token invalid")
+	}
+	return nil
 }
