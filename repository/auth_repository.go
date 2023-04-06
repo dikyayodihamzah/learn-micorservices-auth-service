@@ -16,9 +16,6 @@ var dbName = os.Getenv("DB_NAME")
 type AuthRepository interface {
 	Register(c context.Context, user domain.User) error
 	GetUsersByQuery(c context.Context, params, value string) (domain.User, error)
-	LoginByUsername(c context.Context, username string) (domain.User, error)
-	LoginByEmail(c context.Context, email string) (domain.User, error)
-	LoginByPhone(c context.Context, phone string) (domain.User, error)
 	UpdatePassword(c context.Context, user domain.User) error
 
 	CreateToken(c context.Context, tokens domain.ResetPasswordToken) error
@@ -68,7 +65,7 @@ func (repository *authRepository) Register(c context.Context, user domain.User) 
 		user.Email,
 		user.Password,
 		user.Phone,
-		user.Role.ID,
+		user.RoleID,
 		user.CreatedAt,
 		user.UpdatedAt); err != nil {
 		return exception.ErrUnprocessableEntity(err.Error())
@@ -77,7 +74,6 @@ func (repository *authRepository) Register(c context.Context, user domain.User) 
 	return nil
 }
 
-
 func (repository *authRepository) GetUsersByQuery(c context.Context, params, value string) (domain.User, error) {
 	ctx, cancel := context.WithTimeout(c, 10*time.Second)
 	defer cancel()
@@ -85,66 +81,18 @@ func (repository *authRepository) GetUsersByQuery(c context.Context, params, val
 	db := repository.Database(dbName)
 	defer db.Close(ctx)
 
-	query := fmt.Sprintf("SELECT * FROM users WHERE %s = $1", params)
+	query := fmt.Sprintf(`
+		SELECT users.*, roles.name 
+		FROM users 
+		LEFT JOIN roles ON roles.id = users.role_id
+		WHERE %s = $1`, params)
 
 	user := db.QueryRow(ctx, query, value)
 
 	var data domain.User
-	user.Scan(&data.ID, &data.Name, &data.Username, &data.Email, &data.Password, &data.Phone, &data.Role, &data.CreatedAt, &data.UpdatedAt)
+	user.Scan(&data.ID, &data.Name, &data.Username, &data.Email, &data.Password, &data.Phone, &data.RoleID, &data.CreatedAt, &data.UpdatedAt, &data.RoleName)
 
 	return data, nil
-}
-
-
-func (repository *authRepository) LoginByUsername(c context.Context, username string) (domain.User, error) {
-	ctx, cancel := context.WithTimeout(c, 10*time.Second)
-	defer cancel()
-
-	db := repository.Database(dbName)
-	defer db.Close(ctx)
-
-	query := `SELECT * FROM users WHERE username = $1`
-
-	user := db.QueryRow(ctx, query, username)
-
-	data := new(domain.User)
-	user.Scan(data.ID, data.Name, data.Username, data.Email, data.Password, data.Phone, data.Role, data.CreatedAt, data.UpdatedAt)
-
-	return *data, nil
-}
-
-func (repository *authRepository) LoginByEmail(c context.Context, email string) (domain.User, error) {
-	ctx, cancel := context.WithTimeout(c, 10*time.Second)
-	defer cancel()
-
-	db := repository.Database(dbName)
-	defer db.Close(ctx)
-
-	query := `SELECT * FROM users WHERE email = $1`
-
-	user := db.QueryRow(ctx, query, email)
-
-	data := new(domain.User)
-	user.Scan(data.ID, data.Name, data.Username, data.Email, data.Password, data.Phone, data.Role, data.CreatedAt, data.UpdatedAt)
-
-	return *data, nil
-}
-
-func (repository *authRepository) LoginByPhone(c context.Context, phone string) (domain.User, error) {
-	ctx, cancel := context.WithTimeout(c, 10*time.Second)
-	defer cancel()
-
-	db := repository.Database(dbName)
-	defer db.Close(ctx)
-
-	query := `SELECT * FROM users WHERE phone = $1`
-
-	user := db.QueryRow(ctx, query, phone)
-
-	data := new(domain.User)
-	user.Scan(data.ID, data.Name, data.Username, data.Email, data.Password, data.Phone, data.Role, data.CreatedAt, data.UpdatedAt)
-
-	return *data, nil
 }
 
 func (repository *authRepository) UpdatePassword(c context.Context, user domain.User) error {
@@ -174,7 +122,7 @@ func (repository *authRepository) CreateToken(c context.Context, tokens domain.R
 	db := repository.Database(dbName)
 	defer db.Close(ctx)
 
-	query := "INSERT INTO reset_token (tokens, email, phone, created_at) VALUES($1,$2,$3,$4)"
+	query := "INSERT INTO reset_token (tokens, email, created_at) VALUES($1,$2,$3)"
 
 	if _, err := db.Prepare(ctx, "data", query); err != nil {
 		return exception.ErrInternalServer(err.Error())

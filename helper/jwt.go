@@ -9,8 +9,7 @@ import (
 )
 
 type UserClaimsData struct {
-	ID       string `json:"nik"`
-	Username string `json:"name"`
+	ID       string `json:"id"`
 	RoleID   string `json:"role_id"`
 }
 
@@ -34,7 +33,7 @@ func GenerateJWT(issuer string, user UserClaimsData) (string, error) {
 		},
 	}
 
-	tokens := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	tokens := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	return tokens.SignedString([]byte(secretKey))
 }

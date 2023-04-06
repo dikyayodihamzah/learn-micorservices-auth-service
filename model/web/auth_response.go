@@ -23,7 +23,8 @@ type RegisterResponse struct {
 }
 
 type LoginResponse struct {
-	Role RoleResponse `json:"role"`
+	ID     string `json:"id"`
+	RoleID string `json:"role_id"`
 }
 
 func NewRegisterResponse(user domain.User) RegisterResponse {
@@ -34,8 +35,8 @@ func NewRegisterResponse(user domain.User) RegisterResponse {
 		Email:    user.Email,
 		Phone:    user.Phone,
 		Role: RoleResponse{
-			ID:   user.Role.ID,
-			Name: user.Role.Name,
+			ID:   user.RoleID,
+			Name: user.RoleName,
 		},
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,

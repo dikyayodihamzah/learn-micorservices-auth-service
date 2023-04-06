@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"log"
 	"strings"
 	"time"
 
@@ -71,13 +72,12 @@ func (service *authService) Register(c context.Context, request web.RegisterRequ
 	}
 
 	user := domain.User{
-		Name:     request.Name,
-		Username: request.Username,
-		Email:    request.Email,
-		Password: request.Password,
-		Role: domain.Role{
-			ID: request.RoleID,
-		},
+		Name:      request.Name,
+		Username:  request.Username,
+		Email:     request.Email,
+		Password:  request.Password,
+		Phone:     request.Phone,
+		RoleID:    request.RoleID,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -111,7 +111,7 @@ func (service *authService) Login(c context.Context, request web.LoginRequest) (
 
 	// Login using username
 	if request.Username != "" {
-		user, err = service.AuthRepository.LoginByUsername(c, request.Username)
+		user, err = service.AuthRepository.GetUsersByQuery(c, "username", request.Username)
 		if err != nil || user.ID == "" {
 			return fiber.Cookie{}, web.LoginResponse{}, exception.ErrNotFound("user not found")
 		}
@@ -119,7 +119,7 @@ func (service *authService) Login(c context.Context, request web.LoginRequest) (
 
 	// Login using email
 	if request.Email != "" {
-		user, err = service.AuthRepository.LoginByEmail(c, request.Email)
+		user, err = service.AuthRepository.GetUsersByQuery(c, "email", request.Email)
 		if err != nil || user.ID == "" {
 			return fiber.Cookie{}, web.LoginResponse{}, exception.ErrNotFound("user not found")
 		}
@@ -127,7 +127,7 @@ func (service *authService) Login(c context.Context, request web.LoginRequest) (
 
 	// Login using phone
 	if request.Phone != "" {
-		user, err = service.AuthRepository.LoginByPhone(c, request.Phone)
+		user, err = service.AuthRepository.GetUsersByQuery(c, "phone", request.Phone)
 		if err != nil || user.ID == "" {
 			return fiber.Cookie{}, web.LoginResponse{}, exception.ErrNotFound("user not found")
 		}
@@ -138,9 +138,8 @@ func (service *authService) Login(c context.Context, request web.LoginRequest) (
 	}
 
 	claims := helper.UserClaimsData{
-		ID:       user.ID,
-		Username: user.Username,
-		RoleID:   user.Role.ID,
+		ID:     user.ID,
+		RoleID: user.RoleID,
 	}
 
 	token, err := helper.GenerateJWT(user.ID, claims)
@@ -154,12 +153,11 @@ func (service *authService) Login(c context.Context, request web.LoginRequest) (
 	}
 
 	response := web.LoginResponse{
-		Role: web.RoleResponse{
-			ID:   user.Role.ID,
-			Name: user.Role.Name,
-		},
+		ID:     user.ID,
+		RoleID: user.RoleID,
 	}
 
+	log.Println(token)
 	return cookie, response, nil
 }
 
@@ -181,10 +179,7 @@ func (service *authService) ForgetPassword(c context.Context, email string) erro
 		return exception.ErrBadRequest("email not match for the record")
 	}
 
-	tokens, err := service.AuthRepository.CheckTokenWithQuery(c, "email", email)
-	if err != nil {
-		return exception.ErrInternalServer(err.Error())
-	}
+	tokens, _ := service.AuthRepository.CheckTokenWithQuery(c, "email", email)
 	if tokens.Tokens != "" {
 		service.AuthRepository.DeleteToken(c, tokens.Tokens)
 	}
@@ -235,8 +230,8 @@ func (service *authService) ResetPassword(c context.Context, email, token string
 		return exception.ErrNotFound(err.Error())
 	}
 
-	user.UpdatedAt = time.Now()
 	user.SetPassword(request.Password)
+	user.UpdatedAt = time.Now()
 
 	service.AuthRepository.UpdatePassword(c, user)
 

@@ -48,7 +48,7 @@ func (controller *authController) Register(ctx *fiber.Ctx) error {
 	request := new(web.RegisterRequest)
 	err := ctx.BodyParser(request)
 	helper.PanicIfError(err)
-	
+
 	user, err := controller.AuthService.Register(ctx.Context(), *request)
 	if err != nil {
 		return exception.ErrorHandler(ctx, err)
@@ -63,12 +63,12 @@ func (controller *authController) Register(ctx *fiber.Ctx) error {
 }
 
 func (controller *authController) Login(ctx *fiber.Ctx) error {
-	var request web.LoginRequest
+	request := new(web.LoginRequest)
 	if err := ctx.BodyParser(request); err != nil {
 		return exception.ErrorHandler(ctx, err)
 	}
 
-	cookie, user, err := controller.AuthService.Login(ctx.Context(), request)
+	cookie, user, err := controller.AuthService.Login(ctx.Context(), *request)
 	if err != nil {
 		return exception.ErrorHandler(ctx, err)
 	}
@@ -107,7 +107,7 @@ func (controller *authController) Logout(ctx *fiber.Ctx) error {
 }
 
 func (controller *authController) ForgetPassword(ctx *fiber.Ctx) error {
-	data :=  new(web.ForgetPasswordRequest)
+	data := new(web.ForgetPasswordRequest)
 	err := ctx.BodyParser(data)
 	helper.PanicIfError(err)
 

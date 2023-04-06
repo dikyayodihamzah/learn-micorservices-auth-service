@@ -14,9 +14,10 @@ type User struct {
 	Email     string    `json:"email"`
 	Password  string    `json:"password"`
 	Phone     string    `json:"phone"`
-	Role      Role      `json:"role"`
+	RoleID    string    `json:"role_id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	RoleName  string    `json:"role_name"`
 }
 
 func (user *User) GenerateID() {

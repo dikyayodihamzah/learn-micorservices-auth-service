@@ -14,8 +14,8 @@ func ToRegisterResponse(user domain.User) web.RegisterResponse {
 		Email:    user.Email,
 		Phone:    user.Phone,
 		Role: web.RoleResponse{
-			ID:   user.Role.ID,
-			Name: user.Role.Name,
+			ID:   user.RoleID,
+			Name: user.RoleName,
 		},
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,

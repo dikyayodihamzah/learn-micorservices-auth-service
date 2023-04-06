@@ -18,7 +18,6 @@ type LoginRequest struct {
 
 type ForgetPasswordRequest struct {
 	Email    string `json:"email"`
-	Password string `json:"password"`
 }
 
 type ResetPassword struct {

@@ -1,3 +1,3 @@
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS roles;
-DROP TABLE IF EXISTS reset-token;
+DROP TABLE IF EXISTS reset_token;

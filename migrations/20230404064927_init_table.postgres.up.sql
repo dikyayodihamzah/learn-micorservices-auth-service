@@ -1,5 +1,5 @@
 CREATE TABLE users (
-    "id" varchar(16) NOT NULL,
+    "id" varchar(36) NOT NULL,
     "name" varchar(50) NOT NULL,
     "username" varchar(50) NOT NULL,
     "email" varchar(50) NOT NULL,
