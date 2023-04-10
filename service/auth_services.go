@@ -95,6 +95,7 @@ func (service *authService) Register(c context.Context, request web.RegisterRequ
 	}
 
 	// KAFKA
+	helper.ProduceToKafka(user, "POST.USER", helper.KafkaTopic)
 
 	return helper.ToRegisterResponse(user), nil
 }
@@ -235,7 +236,8 @@ func (service *authService) ResetPassword(c context.Context, email, token string
 
 	service.AuthRepository.UpdatePassword(c, user)
 
-	// helper.ProduceToKafka(user, "PUT.USER", helper.KafkaTopic)
+	// KAFKA
+	helper.ProduceToKafka(user, "PUT.USER", helper.KafkaTopic)
 
 	err = service.AuthRepository.DeleteToken(c, resetToken)
 	if err != nil {

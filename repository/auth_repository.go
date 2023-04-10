@@ -22,6 +22,10 @@ type AuthRepository interface {
 	CheckToken(c context.Context, token string) (domain.ResetPasswordToken, error)
 	CheckTokenWithQuery(c context.Context, params, value string) (domain.ResetPasswordToken, error)
 	DeleteToken(c context.Context, token string) error
+
+	//kafka
+	UpdateUser(c context.Context, user domain.User) error
+	DeleteUser(c context.Context, user_id string) error
 }
 
 type authRepository struct {
@@ -188,6 +192,63 @@ func (repository *authRepository) DeleteToken(c context.Context, token string) e
 
 	if _, err := db.Exec(ctx, "data", token); err != nil {
 		return exception.ErrInternalServer(err.Error())
+	}
+
+	return nil
+}
+
+// function for kafka
+func (repository *authRepository) UpdateUser(c context.Context, user domain.User) error {
+	ctx, cancel := context.WithTimeout(c, 10*time.Second)
+	defer cancel()
+
+	db := repository.Database(dbName)
+	defer db.Close(ctx)
+
+	query := `UPDATE users SET 
+		name = $1, 
+		username = $2, 
+		email = $3, 
+		password = $4, 
+		phone = $5, 
+		role_id = $6, 
+		updated_at = $7
+		WHERE id = $8`
+
+	if _, err := db.Prepare(ctx, "data", query); err != nil {
+		return exception.ErrInternalServer(err.Error())
+	}
+
+	if _, err := db.Exec(ctx, "data",
+		user.Name,
+		user.Username,
+		user.Email,
+		user.Password,
+		user.Phone,
+		user.RoleID,
+		user.UpdatedAt,
+		user.ID); err != nil {
+		return exception.ErrUnprocessableEntity(err.Error())
+	}
+
+	return nil
+}
+
+func (repository *authRepository) DeleteUser(c context.Context, user_id string) error {
+	ctx, cancel := context.WithTimeout(c, 10*time.Second)
+	defer cancel()
+
+	db := repository.Database(dbName)
+	defer db.Close(ctx)
+
+	query := `DELETE FROM users WHERE id = $1`
+
+	if _, err := db.Prepare(ctx, "data", query); err != nil {
+		return exception.ErrInternalServer(err.Error())
+	}
+
+	if _, err := db.Exec(ctx, "data", user_id); err != nil {
+		return exception.ErrUnprocessableEntity(err.Error())
 	}
 
 	return nil
